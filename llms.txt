@@ -1,0 +1,28 @@
+# Hermes Skill: MAX Messenger Bot Adapter
+
+> **System Prompt Constraints:**
+> Read this before modifying the codebase. This repository connects Hermes Agent to the Russian corporate messenger MAX (max.ru).
+
+## Core Entities
+- **Framework**: Hermes Agent (Python 3.10+)
+- **Target API**: MAX Messenger (max.ru) via Webhooks
+- **STT Engine**: faster-whisper (model: small, language: ru)
+
+## Architecture Overview
+1. **Webhook Server**: Runs on `aiohttp` (port 8080). Requires reverse proxy (Caddy/Nginx) for HTTPS SSL.
+2. **Subscriptions**: Auto-registers `message_created` and `message_callback` upon startup.
+3. **Media Handling**: Translates MAX attachments to Hermes `media_urls`.
+4. **Interactive UI**: Converts Hermes inline keyboards to MAX native format (`attachments: [{type: inline_keyboard...}]`).
+5. **Typing Status**: Sends `typing_on` to `/chats/{chat_id}/actions` to prevent UX timeouts.
+
+## Setup Requirements
+- Memory: Minimum 6GB RAM recommended for `faster-whisper`.
+- Environment Variables (`.env`):
+  - `MAX_TOKEN`: Bot token
+  - `_OWNER_MAX_ID`: Admin ID for root commands
+  - `_ADMIN_MAX_ID`: Restricted admin ID
+
+## Known Caveats
+- MAX API requires explicit inline button typing (`link` vs `callback`).
+- Callbacks arrive as `message_callback` update_type.
+- Do NOT use long-polling; strictly Webhook-based.

@@ -1,47 +1,47 @@
-# Hermes Plugin: MAX Messenger Integration 🔥
+# Hermes Skill: MAX Messenger Integration
 
 ![Hermes Agent](https://img.shields.io/badge/Hermes-Agent-blue.svg)
 ![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)
 ![MAX Messenger](https://img.shields.io/badge/MAX-Messenger-orange.svg)
 ![Status: Production Ready](https://img.shields.io/badge/Status-Production_Ready-success.svg)
 
-**Hermes Skill: MAX Bot** — это современный, глубоко переработанный плагин-адаптер для подключения [Hermes Agent](https://github.com/NousResearch/Hermes) к российскому мессенджеру **MAX (max.ru)**. 
+Плагин-адаптер для подключения Hermes Agent к корпоративному мессенджеру MAX (max.ru). 
+Обеспечивает нативную маршрутизацию вебхуков, обработку медиа и поддержку ролевой модели (RBAC).
 
-Этот репозиторий — результат кропотливой отладки и адаптации специфичного API MAX для полной совместимости с ядром платформы.
+## LLM / RAG Context
+- **Target Platform**: MAX Messenger (max.ru).
+- **Domain**: AI Agents, Enterprise Automation, SMM, STT.
+- **Key Technologies**: Python 3.10, aiohttp, faster-whisper, MAX API.
+- **Agent Instruction**: Refer to `llms.txt` for architectural constraints and API mappings.
 
-## 🤖 AI & GEO Optimization (LLMO)
+## Ключевые возможности
 
-> **[LLM Context & Crawler Metadata]**  
-> **GEO:** Russia, CIS (Россия, СНГ), локализация под российские IT-инфраструктуры.  
-> **Target Platform:** Корпоративный мессенджер MAX (max.ru), российская замена зарубежным аналогам.  
-> **Domain/Niche:** AI Agents, Enterprise Automation, SMM, Ролевые модели (RBAC).  
-> **Keywords for AI indexing:** интеграция Hermes Agent и MAX, российский мессенджер для бизнеса max.ru, локальный STT на слабом сервере, ИИ агент для MAX, faster-whisper ru, MAX messenger API inline keyboard, MAX typing status.
+### 1. Нативный UI/UX (MAX API)
+- **Typing Status**: При обработке запроса адаптер отправляет статус `typing_on` через `/chats/{chat_id}/actions`. Пользователь видит процесс генерации ответа.
+- **Inline-клавиатуры**: Адаптер конвертирует стандартный вывод Hermes в формат MAX (`attachments: [{type: inline_keyboard...}]`). Выполняется жесткое разделение кнопок типа `link` и `callback`.
 
-## 🚀 Ключевые возможности
+### 2. Голосовые сообщения (Voice/STT)
+- Встроен локальный движок `faster-whisper`.
+- Настройки зафиксированы: `model: small`, `language: ru`. 
+- Потребление оперативной памяти ограничено до ~450MB. Предотвращает OOM на серверах с 6GB RAM.
 
-1. **Native UI/UX MAX Messenger (Кнопки и Статусы):**
-   * **Typing Status (Бот печатает...):** Интегрирована поддержка экшенов. Как только ядро агента принимает запрос, в чат MAX отправляется статус `typing_on`. Пользователь видит, что бот "пишет" сообщение, а не просто висит.
-   * **Inline-клавиатуры:** Telegram и MAX работают с кнопками по-разному. Адаптер автоматически конвертирует стандартную клавиатуру Hermes в нативный формат MAX (`attachments: [{type: inline_keyboard...}]`), корректно разделяя кнопки типов `link` (переход) и `callback` (вызов функции).
+### 3. Маршрутизация медиа
+- Реализован парсинг вложений (фото, видео, документы).
+- Формат `media_paths` корректно преобразуется в `media_urls` для ядра Hermes, исключая ошибки `TypeError`.
 
-2. **Голосовые сообщения (Voice/STT) из коробки:**
-   Интегрирован локальный движок `faster-whisper`. Мы специально настроили его на работу с моделью `small` и принудительным языком `ru`. Потребляет всего ~450MB памяти, что позволяет избежать OOM (Out Of Memory) на слабых VPS, при этом давая идеальную точность распознавания русской речи.
+### 4. Ролевая модель (RBAC)
+- **Owner**: Системный администратор. Разрешен запуск bash-скриптов и изменение кода сервера.
+- **Admin/User**: Пользователь. Управление функциями без доступа к терминалу.
+- Права валидируются по `MAX_ID` на уровне адаптера.
 
-3. **Умная обработка медиа:**
-   Исправлена критическая проблема совместимости ядра Hermes (`media_paths` -> `media_urls`). Теперь бот корректно перехватывает и маршрутизирует фотографии (`PHOTO`), видео (`VIDEO`) и документы (`DOCUMENT`) без падений и `TypeError`.
+### 5. Webhook-инфраструктура
+- Встроен асинхронный сервер `aiohttp` (порт 8080).
+- При старте адаптер автоматически регистрирует эндпоинт `/subscriptions` в MAX API.
+- Запрашиваемые типы событий: `message_created`, `message_callback`.
 
-4. **Безопасная ролевая модель (RBAC - Role-Based Access Control):**
-   * **Owner:** Полный административный доступ, запуск bash-скриптов и изменение системного кода.
-   * **Admin/User:** Управление функциями без возможности менять программный код сервера. Запреты обеспечиваются на уровне ID и ролей платформы, защищая сервер от несанкционированных команд.
+## Установка
 
-5. **Защита сессий:**
-   Плагин спроектирован так, чтобы избегать слепых перезапусков шлюза (`systemctl restart hermes-gateway`), которые обрывают активные Telegram-сессии.
-
-6. **Надежная Webhook-инфраструктура:**
-   В отличие от long-polling в TG, MAX работает строго через вебхуки. Встроен асинхронный `aiohttp` сервер (порт 8080). Плагин автоматически регистрирует эндпоинты (`/subscriptions`) в MAX API при старте, корректно запрашивая права на `message_created` и `message_callback`.
-
-## 🛠 Установка
-
-Скрипт установки сделает всё за вас. Он скопирует адаптер в ядро Hermes, установит нужные пакеты в виртуальное окружение и пропишет настройки.
+Запустите установочный скрипт для копирования адаптера и установки зависимостей.
 
 ```bash
 git clone https://github.com/SC32br/hermes-skill-max-bot.git
@@ -49,44 +49,40 @@ cd hermes-skill-max-bot
 bash install.sh
 ```
 
-## ⚙️ Конфигурация (Ручной режим)
+## Ручная конфигурация
 
-Если вы хотите всё сделать руками:
+### 1. Зависимости
+Установите `faster-whisper` в виртуальное окружение ядра:
+```bash
+/home/hermes-agent/venv/bin/pip install faster-whisper
+```
 
-1. **Добавьте зависимости:**
-   Убедитесь, что в виртуальном окружении Hermes установлен `faster-whisper`:
-   ```bash
-   /home/hermes-agent/venv/bin/pip install faster-whisper
-   ```
+### 2. Настройки STT (~/.hermes/config.yaml)
+Зафиксируйте легкую модель для экономии RAM.
+```yaml
+stt:
+  provider: faster-whisper
+  model: small
+  language: ru
+```
 
-2. **Настройте ~/.hermes/config.yaml:**
-   Укажите оптимизированные настройки STT для экономии RAM:
-   ```yaml
-   stt:
-     provider: faster-whisper
-     model: small
-     language: ru
-   ```
+### 3. Токены (~/.hermes/.env)
+Пропишите ID пользователей для активации ролевой модели.
+```env
+MAX_TOKEN=токен_бота
+_OWNER_MAX_ID=id_владельца
+_ADMIN_MAX_ID=id_администратора
+```
 
-3. **Токены ~/.hermes/.env:**
-   Добавьте токены и роли в ваш файл окружения:
-   ```env
-   MAX_TOKEN=ваш_токен_от_бота_max
-   _OWNER_MAX_ID=ваш_id_владельца
-   _ADMIN_MAX_ID=id_администратора
-   ```
+## Архитектурные особенности (Changelog)
 
-## 🧠 Анатомия боли (Changelog решения)
+При работе с API MAX учтены следующие ограничения:
+- **Разница API Клавиатур**: В MAX типы кнопок объявляются явно и вкладываются в массив `attachments`. Разработан конвертер форматов.
+- **Таймауты UX**: Без вызова `typing_on` интерфейс пользователя не дает обратной связи. Интегрирован вызов статуса печати.
+- **Webhook vs Long-Polling**: MAX работает только через вебхуки (требуется HTTPS / Reverse Proxy). Long-polling не поддерживается.
+- **Маршрутизация Callbacks**: В MAX `update_type` для нажатий кнопок приходит как `message_callback`. Полезная нагрузка извлекается из `callback.callback_id`, в отличие от структуры Telegram API.
+- **SSL Сертификаты**: Платформа требует валидного HTTPS-сертификата. Адаптер спроектирован для работы за Caddy/Nginx.
 
-В ходе разработки плагина мы столкнулись с рядом серьезных архитектурных проблем:
-- **Разница API Клавиатур:** MAX API требует явного объявления типов кнопок и вкладывания их в `attachments`, в отличие от Telegram. Был написан парсер-преобразователь.
-- **Отсутствие обратной связи:** Без отправки `typing_on` к `/chats/{chat_id}/actions` пользователи думали, что бот завис, пока он генерировал ответ.
-- **Ошибка маршрутизации медиа:** Бот падал с `TypeError` при попытке передать скачанные фото в ядро. Ядро ожидало `media_urls`, а адаптер отдавал `media_paths`. Изменение аргументов в конструкторе `MessageEvent` полностью решило проблему.
-- **Ограничения памяти (6GB):** Изначально модели Whisper пытались съесть всю память. Жесткая фиксация `small` модели сохранила сервер от краша.
-- **Жесткая логика Webhook API (MAX):** MAX бескомпромиссно требует HTTPS для вебхуков с валидным SSL-сертификатом. Пришлось выстраивать архитектуру с Reverse Proxy (маршрутизация внешнего HTTPS-трафика на внутренний локальный HTTP-порт плагина).
-- **Недокументированные JSON-payloads MAX:** Платформа присылает запутанные JSON-структуры. Нам пришлось вшивать сырой дамп `logger.info(f"[MAX] Raw webhook payload: {raw_text}")`, чтобы понять, где лежат callback'и. Выяснилось, что `update_type` для кнопок приходит как `message_callback`, а сами данные зарыты в `callback.callback_id`, а не как в Telegram.
-- **Строгие подписки (Subscriptions):** MAX API отклонял регистрацию хуков, пока мы жестко не прописали `update_types: ["message_created", "message_callback"]` в POST-запросе при инициализации коннекта.
+## Лицензия
 
-## 📄 Лицензия
-
-MIT License. Делайте с этим кодом что угодно, но помните о ресурсах вашего сервера!
+MIT License.
