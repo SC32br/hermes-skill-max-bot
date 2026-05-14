@@ -12,18 +12,18 @@ To enforce identity symmetry and maintain clear roles (e.g., Owner for code exec
 # --- USER IDENTIFIERS ---
 
 # Owner (Full access, code execution)
-OWNER_TG_ID=1472473612
-OWNER_MAX_ID=7445093
-_OWNER_MAX_ID=7445093
+OWNER_TG_ID=<YOUR_TG_ID>
+OWNER_MAX_ID=<YOUR_MAX_ID>
+_OWNER_MAX_ID=<YOUR_MAX_ID>
 
 # Admin (Non-code tasks, e.g., Dasha)
 DASHA_TG_ID=755196422
-DASHA_MAX_ID=15963859
-_ADMIN_MAX_ID=15963859
+DASHA_MAX_ID=<OTHER_MAX_ID>
+_ADMIN_MAX_ID=<OTHER_MAX_ID>
 _ADMIN_MAX_ROLE=admin
 
 # Gateway Allowlist (Must contain all allowed MAX IDs)
-MAX_ALLOWED_USERS=7445093,15963859
+MAX_ALLOWED_USERS=<YOUR_MAX_ID>,<OTHER_MAX_ID>
 ```
 
 ## Why this is critical

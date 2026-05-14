@@ -56,7 +56,7 @@ This skill covers the hard constraints and undocumented quirks of the MAX messen
 4. **Sending Messages (`POST /messages`) & Authorization Headers**
    - **Symptom 1 ("Unknown Recipient"):** API returns `{"code":"proto.payload","message":"Unknown recipient"}` when trying to send a message.
      - **Root Cause:** Attempting to pass the recipient ID inside the JSON body (e.g., `{"recipient": {"id": "..."}}` or `{"chat_id": "..."}`). MAX API strictly requires the target ID to be passed as a URL query parameter.
-     - **Fix:** Append `?user_id=<ID>` or `?chat_id=<ID>` to the URL. Example: `POST https://platform-api.max.ru/messages?user_id=7445093`, keeping the JSON body focused only on `text` and `attachments`.
+     - **Fix:** Append `?user_id=<ID>` or `?chat_id=<ID>` to the URL. Example: `POST https://platform-api.max.ru/messages?user_id=<YOUR_MAX_ID>`, keeping the JSON body focused only on `text` and `attachments`.
    - **Symptom 2 ("No access token"):** API returns `{"code":"verify.token","message":"No access token"}` despite the token being valid.
      - **Root Cause:** Sending the token as `Authorization: Bearer <token>`. The MAX API strictly expects just the raw token string.
      - **Fix:** Pass the raw token directly in the header: `Authorization: <token>`.
