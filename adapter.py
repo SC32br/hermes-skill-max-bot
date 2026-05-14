@@ -10,14 +10,13 @@ import uuid
 
 from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageType, SendResult
 
-class MaxPlatform(Enum):
-    MAX = "max"
+from gateway.config import Platform
 
 logger = logging.getLogger("gateway.max")
 
 class MaxAdapter(BasePlatformAdapter):
     def __init__(self, config):
-        super().__init__(config, MaxPlatform.MAX)
+        super().__init__(config, Platform("max"))
         # Ensure config is treated as a dict for get() or use getattr safely
         conf_dict = config if isinstance(config, dict) else (config.model_dump() if hasattr(config, "model_dump") else (config.dict() if hasattr(config, "dict") else vars(config)))
         options = conf_dict.get("options", {}) or {}
@@ -32,6 +31,8 @@ class MaxAdapter(BasePlatformAdapter):
         self._app: Optional[web.Application] = None
         self._webhook_runner: Optional[web.AppRunner] = None
         self._webhook_site: Optional[web.TCPSite] = None
+        self._slash_confirm_state = {}
+        self._approval_state = {}
         
         # Get public domain from env or config
         self.public_url = "https://hermes-analyst.xn--b1amyej7e.xn--p1ai/max-webhook"
@@ -194,6 +195,50 @@ class MaxAdapter(BasePlatformAdapter):
             callback_id = callback.get("callback_id", "")
             payload_text = callback.get("payload", "")
             
+            
+            
+            if payload_text.startswith("app:"):
+                parts = payload_text.split(":", 2)
+                if len(parts) == 3:
+                    action = parts[1]
+                    approval_id = parts[2]
+                    session_key = self._approval_state.pop(approval_id, None)
+                    if session_key:
+                        try:
+                            from tools.approval import resolve_gateway_approval
+                            resolve_gateway_approval(session_key, action)
+                        except Exception as e:
+                            import logging
+                            logging.getLogger("gateway.max").error(f"[MAX] Error resolving exec approval: {e}")
+                    
+                    if callback_id:
+                        ans_url = f"{self.base_url}/answers?callback_id={callback_id}"
+                        try:
+                            import requests
+                            await asyncio.to_thread(requests.post, ans_url, headers=self.headers, json={}, timeout=5)
+                        except: pass
+                    
+                    return # Handled
+            if payload_text.startswith("sc:"):
+                parts = payload_text.split(":", 2)
+                if len(parts) == 3:
+                    action = parts[1]
+                    confirm_id = parts[2]
+                    session_key = self._slash_confirm_state.pop(confirm_id, None)
+                    if session_key:
+                        try:
+                            from tools.approval import resolve_gateway_approval
+                            resolve_gateway_approval(confirm_id, action)
+                        except Exception as e:
+                            logger.error(f"[MAX] Error resolving slash confirmation: {e}")
+                    
+                    if callback_id:
+                        ans_url = f"{self.base_url}/answers?callback_id={callback_id}"
+                        try:
+                            await asyncio.to_thread(requests.post, ans_url, headers=self.headers, json={}, timeout=5)
+                        except: pass
+                    
+                    return # Handled
             user_info = callback.get("user", {})
             user_id = str(user_info.get("user_id", ""))
             
@@ -240,8 +285,71 @@ class MaxAdapter(BasePlatformAdapter):
         except Exception as e:
             logger.debug(f"[MAX] Failed to send typing to {chat_id}: {e}")
 
+
+    async def _upload_file(self, file_path: str):
+        if not os.path.exists(file_path):
+            logger.error(f"[MAX] File not found: {file_path}")
+            return None
+            
+        import mimetypes
+        mime_type, _ = mimetypes.guess_type(file_path)
+        mime_type = mime_type or ""
+        
+        att_type = "file"
+        if mime_type.startswith("image/"):
+            att_type = "image"
+        elif mime_type.startswith("video/"):
+            att_type = "video"
+        elif mime_type.startswith("audio/"):
+            att_type = "audio"
+            
+        url_req = f"{self.base_url}/uploads?type={att_type}"
+        try:
+            r1 = await asyncio.to_thread(requests.post, url_req, headers=self.headers, timeout=10)
+            if r1.status_code not in (200, 201):
+                logger.error(f"[MAX] Failed to get upload URL: {r1.status_code} {r1.text}")
+                return None
+            
+            data1 = r1.json()
+            upload_url = data1.get("url")
+            token = data1.get("token")
+            
+            if not upload_url:
+                return None
+                
+            with open(file_path, "rb") as f:
+                files = {"data": (os.path.basename(file_path), f, mime_type or "application/octet-stream")}
+                r2 = await asyncio.to_thread(requests.post, upload_url, headers={"Authorization": self.token}, files=files, timeout=60)
+                
+            if r2.status_code not in (200, 201):
+                logger.error(f"[MAX] Failed to upload file to {upload_url}: {r2.status_code} {r2.text}")
+                return None
+                
+            data2 = r2.json()
+            if att_type not in ["video", "audio"]:
+                token = data2.get("token")
+                
+            if not token:
+                logger.error(f"[MAX] No token received after upload: data1={data1}, data2={data2}")
+                return None
+                
+            return {"type": att_type, "payload": {"token": token}}
+            
+        except Exception as e:
+            logger.error(f"[MAX] Exception uploading {file_path}: {e}")
+            return None
+
     async def send(self, chat_id: str, content: str, **kwargs) -> SendResult:
         payload = {"text": content, "format": "markdown"}
+        media_paths = kwargs.get("media_paths", [])
+        if media_paths:
+            if "attachments" not in payload:
+                payload["attachments"] = []
+            for path in media_paths:
+                att = await self._upload_file(path)
+                if att:
+                    payload["attachments"].append(att)
+
         
         inline_keyboard = kwargs.get("inline_keyboard")
         if inline_keyboard:
@@ -269,14 +377,30 @@ class MaxAdapter(BasePlatformAdapter):
         try:
             r = await asyncio.to_thread(requests.post, url, headers=self.headers, json=payload, timeout=10)
             
-            if r.status_code not in (200, 201):
-                fallback_param = "chat_id" if "user_id" in url else "user_id"
-                fallback_url = f"{self.base_url}/messages?{fallback_param}={chat_id}"
-                r = await asyncio.to_thread(requests.post, fallback_url, headers=self.headers, json=payload, timeout=10)
-                
-            if r.status_code in (200, 201):
-                mid = r.json().get("message", {}).get("body", {}).get("mid", "")
-                return SendResult(success=True, message_id=mid)
+            # Implementing retry for attachment.not.ready
+            max_retries = 5
+            for attempt in range(max_retries):
+                if r.status_code not in (200, 201):
+                    # Check if it's attachment.not.ready
+                    try:
+                        err_code = r.json().get("code")
+                        if err_code == "attachment.not.ready":
+                            logger.info(f"[MAX] Attachment not ready, waiting {attempt + 1}s before retry...")
+                            await asyncio.sleep(1.0 + attempt)
+                            r = await asyncio.to_thread(requests.post, url, headers=self.headers, json=payload, timeout=10)
+                            continue
+                    except:
+                        pass
+                        
+                    fallback_param = "chat_id" if "user_id" in url else "user_id"
+                    fallback_url = f"{self.base_url}/messages?{fallback_param}={chat_id}"
+                    r = await asyncio.to_thread(requests.post, fallback_url, headers=self.headers, json=payload, timeout=10)
+                    
+                if r.status_code in (200, 201):
+                    mid = r.json().get("message", {}).get("body", {}).get("mid", "")
+                    return SendResult(success=True, message_id=mid)
+                    
+                break # if it failed and wasn't attachment.not.ready, break and log error
                 
             logger.error(f"[MAX] Failed to send message to {chat_id}: {r.status_code} {r.text}")
         except Exception as e:
@@ -284,6 +408,59 @@ class MaxAdapter(BasePlatformAdapter):
             
         return SendResult(success=False)
 
+
+    async def send_exec_approval(
+        self,
+        chat_id: str,
+        command: str,
+        session_key: str,
+        description: str = "dangerous command",
+        metadata=None,
+    ) -> SendResult:
+        import hashlib
+        approval_id = str(hashlib.md5(f"{chat_id}:{command}:{session_key}".encode()).hexdigest())[:16]
+        
+        preview = f"⚠️ *Ожидает подтверждения: {description}*\n\n`{command[:500]}`"
+        
+        inline_keyboard = [
+            [
+                {"text": "✅ Один раз", "callback_data": f"app:once:{approval_id}"},
+                {"text": "🔒 На сессию", "callback_data": f"app:session:{approval_id}"},
+                {"text": "❌ Отменить", "callback_data": f"app:deny:{approval_id}"},
+            ],
+            [
+                {"text": "🔑 Всегда", "callback_data": f"app:always:{approval_id}"},
+            ],
+        ]
+        
+        self._approval_state[approval_id] = session_key
+        return await self.send(chat_id=chat_id, content=preview, inline_keyboard=inline_keyboard)
+
+    async def send_slash_confirm(
+        self,
+        chat_id: str,
+        title: str,
+        message: str,
+        session_key: str,
+        confirm_id: str,
+        metadata=None,
+    ) -> SendResult:
+        preview = message if len(message) <= 3800 else message[:3800] + "..."
+        if title:
+            preview = f"{title}\n\n{preview}"
+            
+        inline_keyboard = [
+            [
+                {"text": "✅ Approve Once", "callback_data": f"sc:once:{confirm_id}"},
+                {"text": "🔒 Always Approve", "callback_data": f"sc:always:{confirm_id}"},
+            ],
+            [
+                {"text": "❌ Cancel", "callback_data": f"sc:cancel:{confirm_id}"},
+            ],
+        ]
+        
+        self._slash_confirm_state[confirm_id] = session_key
+        return await self.send(chat_id=chat_id, content=preview, inline_keyboard=inline_keyboard)
     async def get_chat_info(self, chat_id: str) -> dict:
         return {"id": chat_id, "name": f"MAX_{chat_id}", "type": "user"}
 

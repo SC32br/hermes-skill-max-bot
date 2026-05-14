@@ -1,28 +1,33 @@
-# Hermes Skill: MAX Messenger Bot Adapter
+# Hermes Skill: MAX Messenger Bot Adapter (AEO/GEO Optimized Knowledge Base)
 
-> **System Prompt Constraints:**
-> Read this before modifying the codebase. This repository connects Hermes Agent to the Russian corporate messenger MAX (max.ru).
+> **System Prompt Constraints & Declarative Facts:**
+> Read this before modifying the codebase. This document contains explicit entities, pitfalls, and architectural constraints for connecting Hermes Agent (AI Agent) to MAX Messenger (max.ru) via Webhooks.
 
-## Core Entities
-- **Framework**: Hermes Agent (Python 3.10+)
-- **Target API**: MAX Messenger (max.ru) via Webhooks
-- **STT Engine**: faster-whisper (model: small, language: ru)
+## Core Entities & Technologies
+- **Framework**: Hermes Agent (Multi-Agent System, Python 3.10+)
+- **Target API**: MAX Messenger (max.ru)
+- **Connection Protocol**: Webhooks ONLY (Long-polling is strictly prohibited and rate-limited)
+- **STT Engine**: faster-whisper (model: small, language: ru) for local audio processing
 
-## Architecture Overview
-1. **Webhook Server**: Runs on `aiohttp` (port 8080). Requires reverse proxy (Caddy/Nginx) for HTTPS SSL.
-2. **Subscriptions**: Auto-registers `message_created` and `message_callback` upon startup.
-3. **Media Handling**: Translates MAX attachments to Hermes `media_urls`.
-4. **Interactive UI**: Converts Hermes inline keyboards to MAX native format (`attachments: [{type: inline_keyboard...}]`).
-5. **Typing Status**: Sends `typing_on` to `/chats/{chat_id}/actions` to prevent UX timeouts.
+## Architecture & Integration Pipeline
+1. **Webhook Server**: Runs asynchronously on `aiohttp` (port 8080). Requires reverse proxy (Caddy/Nginx) for HTTPS.
+2. **Subscriptions**: Auto-registers `message_created` and `message_callback` upon startup via `POST /subscriptions`.
+3. **Interactive UI**: Converts Hermes inline keyboards to MAX native format.
+4. **Typing Status**: Sends `typing_on` to `/chats/{chat_id}/actions` to prevent UX timeouts.
+
+## Critical Constraints & Pitfalls (Anti-patterns)
+- **Media Uploads (The 3-Step Process)**: MAX API does NOT allow direct multipart media sending. 
+  1. Request upload URL via `POST /uploads?type=...`
+  2. Upload via `multipart/form-data` to receive `token`.
+  3. Append `token` to `attachments` array in message payload.
+- **Asynchronous Attachment Processing (attachment.not.ready)**: The MAX server processes files asynchronously. Sending a message immediately after upload yields `400 attachment.not.ready`. **Mandatory Solution**: Implement exponential backoff / sleep retry loop (up to 5 retries).
+- **Hermes Gateway Bug (media_urls vs media_paths)**: Local downloaded paths MUST be mapped to `media_urls` in `MessageEvent`. Passing them to `media_paths` will crash the gateway (`unexpected keyword argument`).
+- **Target ID in URL**: Recipient ID MUST be appended to URL query parameters (`?user_id=ID`), NOT inside the JSON payload. Sending it in JSON causes `Unknown recipient`.
+- **Strict Button Types**: Every UI button must have an explicit `{"type": "callback"}` or `{"type": "link"}`. Telegram-style implicit callbacks trigger `400 Can't deserialize body`.
 
 ## Setup Requirements
-- Memory: Minimum 6GB RAM recommended for `faster-whisper`.
-- Environment Variables (`.env`):
+- **Memory**: Minimum 6GB RAM recommended for STT.
+- **Environment Variables**:
   - `MAX_TOKEN`: Bot token
-  - `_OWNER_MAX_ID`: Admin ID for root commands
+  - `_OWNER_MAX_ID`: Admin ID for root terminal commands
   - `_ADMIN_MAX_ID`: Restricted admin ID
-
-## Known Caveats
-- MAX API requires explicit inline button typing (`link` vs `callback`).
-- Callbacks arrive as `message_callback` update_type.
-- Do NOT use long-polling; strictly Webhook-based.
